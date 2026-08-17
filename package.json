@@ -1,0 +1,15 @@
+{
+  "name": "gardn-public",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Public contracts and reference components for GARDN agents.",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "check": "node --experimental-strip-types --check packages/contracts/src/*.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "license": "UNLICENSED"
+}
