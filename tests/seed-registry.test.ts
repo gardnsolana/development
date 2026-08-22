@@ -17,6 +17,24 @@ test("the live starter catalog is fully valid", () => {
   assert.deepEqual(result.issues, []);
 });
 
+test("the expanded catalog registers six seeds", () => {
+  assert.equal(STARTER_SEEDS.length, 6);
+});
+
+test("token supply is a token metric, not a wallet metric", () => {
+  const supplySeed = STARTER_SEEDS.find((seed) => seed.id === "seed_token_supply_threshold")!;
+  const onToken = plantSeed(supplySeed, "So11111111111111111111111111111111111111112");
+  assert.equal(onToken.ok, true);
+
+  const onWallet = plantSeed(
+    { ...supplySeed, targetKind: "wallet" },
+    "11111111111111111111111111111111",
+  );
+  assert.equal(onWallet.ok, false);
+  if (onWallet.ok) return;
+  assert.ok(onWallet.issues.some((issue) => issue.code === "unsupported_rule"));
+});
+
 test("every starter seed composes into a plantable definition", () => {
   for (const seed of STARTER_SEEDS) {
     const target = seed.targetKind === "wallet"

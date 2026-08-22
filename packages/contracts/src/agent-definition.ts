@@ -10,6 +10,7 @@ export type RuleMetric =
   | "new_transactions"
   | "sol_balance"
   | "largest_holder_percent"
+  | "token_supply"
   | "mint_authority_enabled"
   | "freeze_authority_enabled";
 
@@ -47,6 +48,7 @@ const WALLET_METRICS = new Set<RuleMetric>(["new_transactions", "sol_balance"]);
 const TOKEN_METRICS = new Set<RuleMetric>([
   "new_transactions",
   "largest_holder_percent",
+  "token_supply",
   "mint_authority_enabled",
   "freeze_authority_enabled",
 ]);
