@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  SEED_CATEGORIES,
   STARTER_SEEDS,
   type StarterSeed,
   plantSeed,
@@ -17,8 +18,51 @@ test("the live starter catalog is fully valid", () => {
   assert.deepEqual(result.issues, []);
 });
 
-test("the expanded catalog registers six seeds", () => {
-  assert.equal(STARTER_SEEDS.length, 6);
+test("the expanded catalog registers ten seeds across both target kinds", () => {
+  assert.equal(STARTER_SEEDS.length, 10);
+  assert.ok(STARTER_SEEDS.some((seed) => seed.targetKind === "wallet"));
+  assert.ok(STARTER_SEEDS.some((seed) => seed.targetKind === "token"));
+});
+
+test("every seed category is represented in the catalog", () => {
+  const categories = new Set(STARTER_SEEDS.map((seed) => seed.category));
+
+  for (const category of SEED_CATEGORIES) {
+    assert.ok(categories.has(category), `${category} needs at least one seed`);
+  }
+});
+
+// A first run has no stored cursor, so the runtime reports every recent
+// signature as new. A starter seed that requires zero new transactions can
+// therefore never match on the run a user tests it with.
+test("no starter seed requires zero new transactions", () => {
+  for (const seed of STARTER_SEEDS) {
+    for (const rule of seed.rules) {
+      if (rule.metric !== "new_transactions") continue;
+      const requiresZero =
+        (rule.operator === "eq" && rule.value === 0) ||
+        (rule.operator === "lt" && rule.value === 1) ||
+        (rule.operator === "lte" && rule.value === 0);
+      assert.equal(requiresZero, false, `${seed.name} cannot match on a first run`);
+    }
+  }
+});
+
+test("boolean authority seeds only use equality operators", () => {
+  const booleanSeeds = STARTER_SEEDS.filter((seed) =>
+    seed.rules.some((rule) =>
+      rule.metric === "mint_authority_enabled" || rule.metric === "freeze_authority_enabled",
+    ),
+  );
+
+  assert.ok(booleanSeeds.length > 0);
+  for (const seed of booleanSeeds) {
+    for (const rule of seed.rules) {
+      if (rule.metric !== "mint_authority_enabled" && rule.metric !== "freeze_authority_enabled") continue;
+      assert.equal(typeof rule.value, "boolean", `${seed.name} must use a boolean value`);
+      assert.ok(rule.operator === "eq" || rule.operator === "neq", `${seed.name} must compare with eq/neq`);
+    }
+  }
 });
 
 test("token supply is a token metric, not a wallet metric", () => {
