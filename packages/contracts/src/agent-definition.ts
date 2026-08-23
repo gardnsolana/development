@@ -1,5 +1,7 @@
+import { isReadableEndpoint } from "./endpoint-target.ts";
+
 export const AGENT_MODES = ["alert", "approval", "automatic"] as const;
-export const TARGET_KINDS = ["wallet", "token"] as const;
+export const TARGET_KINDS = ["wallet", "token", "endpoint"] as const;
 export const SCHEDULES = ["Manual", "Every 5 minutes", "Hourly", "Daily"] as const;
 
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -12,7 +14,11 @@ export type RuleMetric =
   | "largest_holder_percent"
   | "token_supply"
   | "mint_authority_enabled"
-  | "freeze_authority_enabled";
+  | "freeze_authority_enabled"
+  | "http_status"
+  | "response_time_ms"
+  | "content_length"
+  | "content_changed";
 
 export type AgentRule = {
   id: string;
@@ -45,6 +51,12 @@ export type DefinitionValidation =
 
 const OPERATORS = new Set<RuleOperator>(["gt", "gte", "lt", "lte", "eq", "neq"]);
 const WALLET_METRICS = new Set<RuleMetric>(["new_transactions", "sol_balance"]);
+const ENDPOINT_METRICS = new Set<RuleMetric>([
+  "http_status",
+  "response_time_ms",
+  "content_length",
+  "content_changed",
+]);
 const TOKEN_METRICS = new Set<RuleMetric>([
   "new_transactions",
   "largest_holder_percent",
@@ -55,6 +67,7 @@ const TOKEN_METRICS = new Set<RuleMetric>([
 const BOOLEAN_METRICS = new Set<RuleMetric>([
   "mint_authority_enabled",
   "freeze_authority_enabled",
+  "content_changed",
 ]);
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const BASE58_VALUES = new Map(
@@ -112,7 +125,7 @@ function normalizeRules(
   issues: ValidationIssue[],
 ): AgentRule[] {
   if (!Array.isArray(value)) return [];
-  const permitted = targetKind === "wallet" ? WALLET_METRICS : TOKEN_METRICS;
+  const permitted = targetKind === "endpoint" ? ENDPOINT_METRICS : targetKind === "wallet" ? WALLET_METRICS : TOKEN_METRICS;
 
   return value.slice(0, 8).flatMap((raw, index) => {
     if (!isRecord(raw)) {
@@ -166,7 +179,8 @@ export function validateAgentDefinition(input: unknown): DefinitionValidation {
   const mode = text(input.mode, 16) as AgentMode;
   const schedule = text(input.schedule, 32) as AgentSchedule;
   const targetKind = text(input.targetKind, 16) as TargetKind;
-  const targetAddress = text(input.targetAddress, 64);
+  const targetKindForAddress = TARGET_KINDS.includes(targetKind) ? targetKind : "wallet";
+  const targetAddress = text(input.targetAddress, targetKindForAddress === "endpoint" ? 400 : 64);
   const spendLimitCents = Number(input.spendLimitCents ?? 0);
   const sources = normalizeSources(input.sources);
 
@@ -174,15 +188,26 @@ export function validateAgentDefinition(input: unknown): DefinitionValidation {
   if (objective.length < 12) issues.push({ field: "objective", code: "too_short", message: "Objective must describe a concrete outcome." });
   if (!AGENT_MODES.includes(mode)) issues.push({ field: "mode", code: "invalid_mode", message: "Agent mode is not supported." });
   if (!SCHEDULES.includes(schedule)) issues.push({ field: "schedule", code: "invalid_schedule", message: "Schedule is not supported." });
-  if (!TARGET_KINDS.includes(targetKind)) issues.push({ field: "targetKind", code: "invalid_target", message: "Target must be a wallet or token." });
-  if (!isSolanaAddress(targetAddress)) issues.push({ field: "targetAddress", code: "invalid_address", message: "A valid Solana address is required." });
+  if (!TARGET_KINDS.includes(targetKind)) issues.push({ field: "targetKind", code: "invalid_target", message: "Target must be a wallet, token or endpoint." });
+  // An endpoint target is a URL, held to the endpoint policy instead.
+  const addressValid = targetKindForAddress === "endpoint"
+    ? isReadableEndpoint(targetAddress)
+    : isSolanaAddress(targetAddress);
+  if (!addressValid) {
+    issues.push({
+      field: "targetAddress",
+      code: "invalid_address",
+      message: targetKindForAddress === "endpoint"
+        ? "A readable public https endpoint is required."
+        : "A valid Solana address is required.",
+    });
+  }
   if (!Number.isSafeInteger(spendLimitCents) || spendLimitCents < 0 || spendLimitCents > 1_000_000) {
     issues.push({ field: "spendLimitCents", code: "invalid_limit", message: "Spend limit must be an integer between 0 and 1,000,000 cents." });
   }
   if (sources.length === 0) issues.push({ field: "sources", code: "missing_source", message: "At least one source is required." });
 
-  const safeTargetKind = TARGET_KINDS.includes(targetKind) ? targetKind : "wallet";
-  const rules = normalizeRules(input.rules, safeTargetKind, issues);
+  const rules = normalizeRules(input.rules, targetKindForAddress, issues);
   if (mode === "automatic" && rules.length === 0) {
     issues.push({ field: "rules", code: "missing_guard", message: "Automatic agents require at least one deterministic rule." });
   }
