@@ -24,6 +24,16 @@ export type ProbeInput = {
   body: string;
 };
 
+/**
+ * A list API answering 200 with an empty result set is often transient — the
+ * same query returns items again moments later. It is reported so a caller can
+ * retry before believing it, because accepting the first empty answer turns a
+ * blip into a confidently wrong "nothing found".
+ */
+export function isEmptyList(shape: JsonShape): boolean {
+  return shape.itemCount === 0;
+}
+
 export type ProbeVerdict = JsonShape & {
   ok: boolean;
   kind: ResponseKind;
@@ -99,6 +109,13 @@ export function describeJsonShape(body: string): JsonShape {
       };
     }
 
+    // No populated list, but an empty array is still a list — reporting zero
+    // rather than "no list here" is what lets an empty result be recognised.
+    const emptyListKey = keys.find((key) => Array.isArray(parsed[key]) && (parsed[key] as unknown[]).length === 0);
+    if (emptyListKey) {
+      return { rootShape: "object", itemCount: 0, fields: keys.slice(0, MAX_FIELDS) };
+    }
+
     return { rootShape: "object", itemCount: null, fields: keys.slice(0, MAX_FIELDS) };
   }
 
@@ -128,6 +145,8 @@ export function classifyResponse(input: ProbeInput): ProbeVerdict {
     problem = `The endpoint answered ${input.status}.`;
   } else if (isJson && shape.rootShape === null) {
     problem = "The response claims to be JSON but could not be parsed.";
+  } else if (isJson && isEmptyList(shape)) {
+    problem = "The endpoint answered, but its list came back empty — the query matched nothing. Retry before believing it, then try a different term.";
   }
 
   return { ok: input.status < 400 && !shell && problem === null, kind, ...shape, problem };

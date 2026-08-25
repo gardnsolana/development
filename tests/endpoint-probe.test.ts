@@ -94,3 +94,45 @@ test("JSON without a JSON content type is still read as JSON", () => {
   assert.equal(verdict.kind, "json");
   assert.equal(verdict.itemCount, 2);
 });
+
+test("a valid but empty list is a dead end, not a working source", () => {
+  // The failure this catches: a screener that worked minutes earlier answers
+  // 200 with an empty list, and reporting "nothing found" would be a confidently
+  // wrong verdict rather than a transient blip.
+  const verdict = classifyResponse({
+    status: 200,
+    contentType: "application/json",
+    body: '{"schemaVersion":"1.0.0","pairs":[]}',
+  });
+
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.itemCount, 0);
+  assert.match(verdict.problem ?? "", /came back empty/);
+  assert.match(verdict.problem ?? "", /retry before believing it/i);
+});
+
+test("a bare empty array is caught the same way", () => {
+  const verdict = classifyResponse({ status: 200, contentType: "application/json", body: "[]" });
+
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.itemCount, 0);
+});
+
+test("a populated list is not mistaken for an empty one", () => {
+  const verdict = classifyResponse({
+    status: 200,
+    contentType: "application/json",
+    body: '{"pairs":[{"baseToken":{"symbol":"CATE"}}]}',
+  });
+
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.itemCount, 1);
+  assert.equal(verdict.problem, null);
+});
+
+test("an object with no list at all is not treated as empty", () => {
+  const verdict = classifyResponse({ status: 200, contentType: "application/json", body: '{"status":"ok"}' });
+
+  assert.equal(verdict.ok, true, "a single-record response is a valid source");
+  assert.equal(verdict.itemCount, null);
+});
